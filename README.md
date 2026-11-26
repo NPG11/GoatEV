@@ -13,7 +13,8 @@ with the exact math and a plain-language explanation, adjusted for the opponent 
 | Engine Step 3A: range notation (`QQ+, AKs, A5s-A2s`) → combos | ✅ |
 | Engine Step 3B: preflop charts by position + action (open, call, 3bet, call_3bet, 4bet) | ✅ |
 | Engine Step 3C: villain types reshape ranges + fold rates, limp ranges | ✅ |
-| Engine Step 4: decision engine (fold / call / raise) | ⏳ next |
+| Engine Step 4A: EV formulas (fold, call, bet/raise with fold equity) | ✅ |
+| Engine Step 4B: decision engine (fold / call / raise) | ⏳ next |
 | LLM explanations, API, frontend | later |
 
 ## Engine
