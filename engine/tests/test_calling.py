@@ -1,8 +1,8 @@
 import pytest
 
 from goatev_engine.calling import (
-    combo_class, continuing_weights, has_flush_draw, has_open_ended_draw,
-    max_fold_share, never_folds, strength_key,
+    combo_class, continuing_weights, hand_category, has_flush_draw,
+    has_open_ended_draw, max_fold_share, never_folds, strength_key,
 )
 from goatev_engine.equity import equity_by_combo, equity_vs_range, weighted_equity
 from goatev_engine.ranges import parse_range, range_to_combos
@@ -92,6 +92,21 @@ def test_never_folds_on_flop(combo, expected):
 
 def test_overpair_never_folds():
     assert never_folds(("Ks", "Kd"), ["Qh", "7c", "2d"])   # KK above every board card
+
+
+@pytest.mark.parametrize("combo,board,category", [
+    (("7s", "7h"), BOARD, "strong"),                  # set
+    (("Ac", "Kc"), BOARD, "top_pair"),
+    (("Ks", "Kd"), ["Qh", "7c", "2d"], "top_pair"),   # overpair counts as top pair
+    (("Qc", "Jc"), ["Kc", "7c", "2d"], "draw"),       # flush draw
+    (("8s", "8h"), BOARD, "weak_pair"),
+    (("Qs", "Js"), BOARD, "air"),
+    (("9s", "9h"), ["7h", "7c", "2d"], "top_pair"),   # 99 on 7-7-2: really an overpair
+    (("Qs", "Jh"), ["7h", "7c", "2d"], "air"),        # only the board is paired
+    (("7s", "Kh"), ["7h", "7c", "2d"], "strong"),     # trips
+])
+def test_hand_category(combo, board, category):
+    assert hand_category(combo, board) == category
 
 
 def test_board_pair_is_not_villains_pair():

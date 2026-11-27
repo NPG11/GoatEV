@@ -1,7 +1,8 @@
 import pytest
 
 from goatev_engine.decision import (
-    decide, fold_chance, in_position, playability, realization,
+    decide, fold_chance, in_position, narrow_by_flop_action, playability,
+    realization, villain_flop_action,
 )
 from goatev_engine.numbers import pot_odds
 from goatev_engine.scenario import Scenario, ScenarioError
@@ -87,6 +88,39 @@ def test_72o_folds_in_the_big_blind():
                     villain_position="BTN", hero_cards=["7s", "2h"],
                     pot=9, to_call=4), **FAST)
     assert d.best.action == "fold"
+
+
+# --- 4C: villain's flop action narrows their range ------------------------------------
+
+def test_villain_flop_action_is_worked_out_from_the_spot():
+    assert villain_flop_action(spot(to_call=10)) == "bet"
+    assert villain_flop_action(spot(to_call=0, pot=20)) == "check"        # hero BTN = in position
+    assert villain_flop_action(spot(to_call=0, pot=20, hero_position="SB",
+                                    villain_position="BTN")) is None    # hero acts first
+    assert villain_flop_action(spot(street="preflop", board=[], pot=9, to_call=6)) is None
+
+
+def test_a_nit_betting_means_a_stronger_range():
+    d = decide(spot(villain_type="nit"), **FAST)
+    assert d.numbers["villain_combos"] < d.numbers["villain_combos_before_flop_action"]
+    # Top pair has less equity vs a Nit who bets than vs a Maniac who bets
+    maniac = decide(spot(villain_type="maniac"), **FAST)
+    assert d.numbers["equity"] < maniac.numbers["equity"] - 0.05
+
+
+def test_a_nit_checking_means_a_weaker_range():
+    air = dict(villain_type="nit", hero_cards=["Qs", "Jh"], pot=20)
+    checked = decide(spot(to_call=0, **air), **FAST)
+    oop = decide(spot(to_call=0, hero_position="SB", villain_position="CO", **air), **FAST)
+    assert checked.numbers["equity"] > oop.numbers["equity"]
+
+
+def test_narrowing_keeps_order_and_drops_nothing_with_weight():
+    from goatev_engine.villains import get_profile
+    combos = [("7s", "7h"), ("Qs", "Js")]
+    c, w = narrow_by_flop_action(combos, [1.0, 1.0], ["Ah", "7c", "2d"],
+                                 get_profile("nit"), "bet")
+    assert c == combos and w == [pytest.approx(0.85), pytest.approx(0.05)]
 
 
 # --- the building blocks -------------------------------------------------------------

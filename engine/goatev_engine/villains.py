@@ -37,11 +37,26 @@ class VillainProfile:
     fold_to_3bet: float         # preflop: folds after opening and facing a 3-bet
     fold_to_cbet: float         # flop: folds to a continuation bet
     fold_to_raise: float        # flop: folds after betting and getting raised
+    # How often they BET the flop with each kind of hand (calling.hand_category).
+    # Used to narrow their range after they bet (or check).
+    flop_bet: dict[str, float]
+    # Of the hands that continue vs hero's flop bet/raise, the share that RE-RAISE.
+    flop_reraise: float
+    # Implied odds: when hero hits a draw, the share of a pot-sized bet they pay off.
+    payoff_rate: float
+    # Reverse implied odds: when hero calls with a weak pair and is behind,
+    # the share of a pot-sized bet hero tends to lose on later streets.
+    barrel_rate: float
 
 
 #                 open  call  3bet  call_3bet  4bet  limp
 def _w(o, c, t, c3, f, lp):
     return {"open": o, "call": c, "3bet": t, "call_3bet": c3, "4bet": f, "limp": lp}
+
+
+#                     strong  top_pair  draw  weak_pair  air
+def _bet(s, tp, d, wp, a):
+    return {"strong": s, "top_pair": tp, "draw": d, "weak_pair": wp, "air": a}
 
 
 PROFILES: dict[str, VillainProfile] = {
@@ -50,30 +65,41 @@ PROFILES: dict[str, VillainProfile] = {
         "No reads yet. Assume a solid, standard player.",
         _w(1.0, 1.0, 1.0, 1.0, 1.0, 1.0),
         fold_to_3bet=0.55, fold_to_cbet=0.45, fold_to_raise=0.50,
+        flop_bet=_bet(0.80, 0.65, 0.50, 0.30, 0.25),
+        flop_reraise=0.25, payoff_rate=0.40, barrel_rate=0.30,
     ),
     "nit": VillainProfile(
         "nit", "Nit",
         "Plays very few hands. When a nit raises, believe them.",
         _w(0.65, 0.6, 0.6, 0.8, 0.7, 0.7),
         fold_to_3bet=0.70, fold_to_cbet=0.55, fold_to_raise=0.70,
+        flop_bet=_bet(0.85, 0.70, 0.30, 0.15, 0.05),
+        flop_reraise=0.35, payoff_rate=0.25, barrel_rate=0.20,
     ),
     "calling_station": VillainProfile(
         "calling_station", "Calling station",
         "Calls far too much, rarely raises, hates folding. Value bet, don't bluff.",
         _w(1.2, 2.5, 0.5, 2.0, 0.6, 1.5),
         fold_to_3bet=0.25, fold_to_cbet=0.20, fold_to_raise=0.25,
+        # Stations check-call a lot: they rarely lead, even with strong hands.
+        flop_bet=_bet(0.50, 0.40, 0.30, 0.35, 0.10),
+        flop_reraise=0.10, payoff_rate=0.70, barrel_rate=0.15,
     ),
     "lag": VillainProfile(
         "lag", "LAG",
         "Loose-aggressive: plays many hands and raises a lot, but with a plan.",
         _w(1.4, 1.2, 2.0, 1.3, 1.5, 1.0),
         fold_to_3bet=0.45, fold_to_cbet=0.40, fold_to_raise=0.40,
+        flop_bet=_bet(0.85, 0.75, 0.70, 0.45, 0.50),
+        flop_reraise=0.30, payoff_rate=0.50, barrel_rate=0.45,
     ),
     "maniac": VillainProfile(
         "maniac", "Maniac",
         "Raises and re-raises almost anything. Let them bluff; call down lighter.",
         _w(1.8, 1.6, 3.0, 1.5, 2.5, 1.0),   # maniacs raise rather than limp
         fold_to_3bet=0.30, fold_to_cbet=0.30, fold_to_raise=0.25,
+        flop_bet=_bet(0.90, 0.85, 0.80, 0.60, 0.65),
+        flop_reraise=0.40, payoff_rate=0.60, barrel_rate=0.60,
     ),
 }
 

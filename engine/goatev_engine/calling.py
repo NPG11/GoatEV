@@ -92,26 +92,48 @@ def strength_key(combo: Combo, board: list[str]) -> float:
     return score
 
 
+def _made_category(combo: Combo, board: list[str]) -> str | None:
+    """'strong', 'top_pair', 'weak_pair', or None (no pair of villain's own)."""
+    rank_class = _EVALUATOR.get_rank_class(made_score(combo, board))
+    # treys classes: 1 straight flush, 2 quads, 3 full house, 4 flush,
+    #                5 straight, 6 trips, 7 two pair, 8 one pair, 9 high card
+    board_ranks = [c[0] for c in board]
+    board_paired = len(set(board_ranks)) < len(board_ranks)
+
+    if rank_class <= 6:
+        return "strong"
+    if rank_class == 7 and not board_paired:
+        return "strong"                      # real two pair, using both hole cards
+    if rank_class == 9:
+        return None
+    # One pair (or "two pair" where one pair is on the board):
+    # what matters is villain's OWN pair and how it compares to the board.
+    all_ranks = [c[0] for c in combo] + board_ranks
+    own = [r for r in {c[0] for c in combo} if all_ranks.count(r) >= 2]
+    if not own:
+        return None                          # the only pair is the board's
+    pair = max(own, key=RANKS.index)
+    top_board = max(RANKS.index(r) for r in board_ranks)
+    return "top_pair" if RANKS.index(pair) >= top_board else "weak_pair"
+
+
+def hand_category(combo: Combo, board: list[str]) -> str:
+    """Sort a villain hand on the flop into one of five buckets:
+    strong (two pair+), top_pair (incl. overpairs), draw, weak_pair, air."""
+    made = _made_category(combo, board)
+    if made in ("strong", "top_pair"):
+        return made
+    if len(board) < 5 and (has_flush_draw(combo, board) or has_open_ended_draw(combo, board)):
+        return "draw"
+    return made or "air"
+
+
 def never_folds(combo: Combo, board: list[str]) -> bool:
     """Hands no one folds to a single bet: QQ+/AK preflop,
     top pair or better on the flop."""
     if not board:
         return combo_class(combo) in NEVER_FOLD_PREFLOP
-
-    score = made_score(combo, board)
-    rank_class = _EVALUATOR.get_rank_class(score)   # 1 = straight flush ... 9 = high card
-    if rank_class <= 7:          # two pair or better
-        return True
-    if rank_class == 9:          # high card
-        return False
-    # One pair: only counts if it's villain's pair and it's top pair or an overpair.
-    cards = list(combo) + list(board)
-    ranks = [c[0] for c in cards]
-    pair_rank = next(r for r in ranks if ranks.count(r) == 2)
-    if pair_rank not in (c[0] for c in combo):
-        return False             # the pair is on the board; villain has nothing
-    top_board = max(RANKS.index(c[0]) for c in board)
-    return RANKS.index(pair_rank) >= top_board
+    return _made_category(combo, board) in ("strong", "top_pair")
 
 
 # ---------------------------------------------------------------------------

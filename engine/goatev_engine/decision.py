@@ -13,7 +13,7 @@ Folding is always worth $0. Every other option is measured against that.
 
 from dataclasses import dataclass, field
 
-from .calling import combo_class, continuing_weights, max_fold_share
+from .calling import combo_class, continuing_weights, hand_category, max_fold_share
 from .ranges import combo_count
 from .strength import chen_score
 from .equity import equity_by_combo, weighted_equity
@@ -52,8 +52,8 @@ LIMITATIONS = (
     "showdown (no extra money won or lost on later streets). Preflop this is "
     "softened with an equity-realization factor.",
     "Preflop, if villain 4-bets hero's 3-bet, hero is assumed to fold.",
-    "Villain's flop bet does not narrow their range yet; their full preflop "
-    "range is used.",
+    "Villain's flop bet or check narrows their range using estimated betting "
+    "frequencies for each kind of hand (strong, top pair, draw, weak pair, air).",
     "After hero bets or raises, villain only folds or calls (no re-raises).",
     "Villain fold rates are estimates for this player type, not measured stats.",
 )
@@ -111,6 +111,33 @@ def playability(hero_cards: list[str]) -> float:
     return PLAYABILITY_MIN + share * (PLAYABILITY_MAX - PLAYABILITY_MIN)
 
 
+def villain_flop_action(s: Scenario) -> str | None:
+    """What villain did on THIS flop, worked out from the spot:
+    facing a bet -> 'bet'; hero in position with nothing to call -> 'check';
+    otherwise villain hasn't acted yet -> None."""
+    if s.street != "flop":
+        return None
+    if s.to_call > 0:
+        return "bet"
+    return "check" if in_position(s) else None
+
+
+def narrow_by_flop_action(combos, weights, board, profile, action):
+    """Multiply each hand's weight by how likely villain is to have taken
+    this action with it. A Nit who bets is mostly strong; a Maniac who bets
+    could have anything."""
+    if action is None:
+        return combos, weights
+    kept_c, kept_w = [], []
+    for c, w in zip(combos, weights):
+        p_bet = profile.flop_bet[hand_category(c, board)]
+        w2 = w * (p_bet if action == "bet" else 1 - p_bet)
+        if w2 > 1e-9:
+            kept_c.append(c)
+            kept_w.append(w2)
+    return kept_c, kept_w
+
+
 def realization(s: Scenario) -> float:
     """Share of raw equity hero actually cashes in (1.0 on the flop in v1)."""
     if s.street != "preflop":
@@ -142,6 +169,11 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0) -> Decision:
     combos, weights = range_to_combos(rng, s.hero_cards + s.board)
     if not combos:
         raise ValueError("every hand in villain's range is blocked")
+    combos_before = sum(weights)
+
+    # 2b. what villain did on the flop narrows the range further
+    flop_action = villain_flop_action(s)
+    combos, weights = narrow_by_flop_action(combos, weights, s.board, profile, flop_action)
 
     # 3. equity
     per_combo = equity_by_combo(s.hero_cards, combos, s.board, samples=samples, seed=seed)
@@ -234,6 +266,8 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0) -> Decision:
         "villain_type": profile.label,
         "villain_range_pct": range_percent(rng),
         "villain_combos": sum(weights),
+        "villain_combos_before_flop_action": combos_before,
+        "villain_flop_action": flop_action,
         "villain_base_fold": base_fold,
         "villain_max_fold": fold_cap,
     }
