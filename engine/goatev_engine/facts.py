@@ -71,6 +71,9 @@ def build_facts(s: Scenario, d: Decision) -> dict:
             row["your_equity_when_called"] = pct(o.equity_when_called)
             # How often this bet would have to work if it had 0% equity when called
             row["folds_needed_for_pure_bluff"] = pct(breakeven_fold_pct(s.pot, o.amount))
+            if o.reraise_pct:
+                row["villain_reraises_all_in"] = pct(o.reraise_pct)
+                row["your_best_answer_to_a_reraise"] = o.vs_reraise
         options.append(row)
 
     best = d.best

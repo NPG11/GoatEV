@@ -56,6 +56,7 @@ def ev_raise(
     equity_when_called: float,
     villain_stack: float = INF,
     reraise_pct: float = 0.0,
+    reraise_value: float | None = None,
 ) -> float:
     """EV of betting or raising.
 
@@ -67,16 +68,18 @@ def ev_raise(
                         (usually lower than vs villain's whole range:
                         weak hands fold, strong hands call)
     villain_stack       villain's chips behind; they can't call more than this
-    reraise_pct         chance villain re-raises; hero then folds and loses `risk`
-                        (default 0 = villain only folds or calls)
+    reraise_pct         chance villain re-raises (default 0 = only folds or calls)
+    reraise_value       what hero ends up with when villain re-raises, after
+                        choosing the better of calling or folding.
+                        Default: hero folds and loses `risk`.
 
     Outcomes:
       villain folds     -> hero wins the pot as it is now             (+pot)
-      villain re-raises -> hero gives up                               (-risk)
+      villain re-raises -> reraise_value (at worst -risk)
       villain calls     -> villain adds (risk - to_call), showdown:
                            equity x final_pot - risk
 
-        EV = fold% x pot - reraise% x risk + call% x (equity x final_pot - risk)
+        EV = fold% x pot + reraise% x reraise_value + call% x (equity x final_pot - risk)
     """
     _check_prob("fold_pct", fold_pct)
     _check_prob("reraise_pct", reraise_pct)
@@ -95,7 +98,25 @@ def ev_raise(
 
     when_called = equity_when_called * final_pot - hero_risk
     call_pct = max(0.0, 1 - fold_pct - reraise_pct)
-    return fold_pct * pot - reraise_pct * risk + call_pct * when_called
+    if reraise_value is None:
+        reraise_value = -risk
+    return fold_pct * pot + reraise_pct * reraise_value + call_pct * when_called
+
+
+def ev_vs_shove(pot: float, to_call: float, risk: float, hero_stack: float,
+                villain_stack: float, equity_vs_shove: float) -> tuple[float, str]:
+    """Hero bet/raised `risk`; villain re-raises ALL-IN. Hero's best response.
+
+    Calling: hero puts in up to their whole stack (capped by what villain has),
+             final pot = pot + hero_total + villain_total, hero wins equity x final.
+    Folding: hero loses the `risk` already put in.
+    Returns (value of the better choice, "call" or "fold").
+    """
+    hero_total = min(hero_stack, villain_stack + to_call)
+    villain_total = hero_total - to_call
+    final_pot = pot + hero_total + villain_total
+    call_value = equity_vs_shove * final_pot - hero_total
+    return (call_value, "call") if call_value > -risk else (-risk, "fold")
 
 
 def ev_bet(pot: float, bet: float, fold_pct: float, equity_when_called: float,

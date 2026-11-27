@@ -1,6 +1,8 @@
 import pytest
 
-from goatev_engine.ev import breakeven_fold_pct, ev_bet, ev_call, ev_fold, ev_raise
+from goatev_engine.ev import (
+    breakeven_fold_pct, ev_bet, ev_call, ev_fold, ev_raise, ev_vs_shove,
+)
 from goatev_engine.numbers import pot_odds
 
 
@@ -95,6 +97,26 @@ def test_reraise_makes_hero_lose_the_raise():
 def test_fold_plus_reraise_over_100_percent_raises():
     with pytest.raises(ValueError, match="can't be more than 1"):
         ev_raise(9, 4, 16, fold_pct=0.8, equity_when_called=0.3, reraise_pct=0.3)
+
+
+def test_reraise_value_replaces_the_default_loss():
+    # Same as above, but when villain re-raises hero calls and is worth +5 instead of -16.
+    ev = ev_raise(9, 4, 16, fold_pct=0.5, equity_when_called=0.3,
+                  reraise_pct=0.1, reraise_value=5)
+    assert ev == pytest.approx(0.5 * 9 + 0.1 * 5 + 0.4 * (0.3 * 37 - 16))
+
+
+def test_vs_shove_calls_with_enough_equity():
+    # Hero raised to 30 facing a 10 bet; pot 30. Villain shoves 170 behind; hero has 180.
+    # Calling: hero_total = min(180, 170 + 10) = 180; villain adds 170; pot = 30 + 180 + 170 = 380.
+    value, answer = ev_vs_shove(30, 10, 30, 180, 170, equity_vs_shove=0.6)
+    assert answer == "call"
+    assert value == pytest.approx(0.6 * 380 - 180)
+
+
+def test_vs_shove_folds_when_crushed():
+    value, answer = ev_vs_shove(30, 10, 30, 180, 170, equity_vs_shove=0.2)
+    assert answer == "fold" and value == -30
 
 
 # --- bluff math ----------------------------------------------------------------

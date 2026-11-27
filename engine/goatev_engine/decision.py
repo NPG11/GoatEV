@@ -19,7 +19,7 @@ from .calling import (
 from .ranges import combo_count
 from .strength import chen_score
 from .equity import equity_by_combo, weighted_equity
-from .ev import breakeven_fold_pct, ev_call, ev_raise
+from .ev import breakeven_fold_pct, ev_call, ev_raise, ev_vs_shove
 from .numbers import call_amount, effective_stack, pot_odds, spr
 from .ranges import range_percent, range_to_combos
 from .scenario import Scenario
@@ -53,10 +53,11 @@ LIMITATIONS = (
     "One street only: after a call, the hand is treated as going straight to "
     "showdown (no extra money won or lost on later streets). Preflop this is "
     "softened with an equity-realization factor.",
-    "Preflop, if villain 4-bets hero's 3-bet, hero is assumed to fold.",
+    "When villain re-raises hero's bet or raise (a flop raise or a preflop "
+    "4-bet), it is treated as all-in, and hero takes the better of calling "
+    "or folding.",
     "Villain's flop bet or check narrows their range using estimated betting "
     "frequencies for each kind of hand (strong, top pair, draw, weak pair, air).",
-    "After hero bets or raises, villain only folds or calls (no re-raises).",
     "Villain fold rates are estimates for this player type, not measured stats. "
     "Each bet shows the folds it needs, the advice shows how far the estimate "
     "can be off before it changes, and you can override the fold rate.",
@@ -71,6 +72,8 @@ class Option:
     fold_pct: float | None = None
     equity_when_called: float | None = None
     breakeven_fold: float | None = None    # folds needed if this were a pure bluff
+    reraise_pct: float | None = None       # chance villain re-raises (all-in)
+    vs_reraise: str | None = None          # hero's best answer to it: "call" or "fold"
 
     def label(self, big_blind: float) -> str:
         if self.action in ("fold", "check"):
@@ -212,7 +215,7 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0,
     preflop = s.street == "preflop"
 
     # Preflop, an opener who faces hero's 3-bet sometimes 4-bets (from the
-    # Step 3 charts). Hero then folds. Those are their very strongest hands.
+    # Step 3 charts). Those are their very strongest hands.
     reraise = 0.0
     if preflop and s.villain_action == "open":
         fourbet = villain_range(s.villain_type, s.villain_position, "4bet")
@@ -221,18 +224,33 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0,
     def aggressive(action: str, risk: float, base: float | None = None) -> Option:
         b = base_fold if base is None else base
         fold = fold_chance(b, s.pot, s.to_call, risk, fold_cap, preflop)
-        rr = min(reraise, 1 - fold)
-        if action == "allin":
-            rr = 0.0       # nothing left to re-raise; those hands just call
+
+        # Re-raises: preflop from the 4-bet chart; on the flop, the top
+        # `flop_reraise` share of the hands that continue.
+        if preflop:
+            rr = min(reraise, 1 - fold)
+        else:
+            rr = profile.flop_reraise * (1 - fold)
+        if action == "allin" or s.villain_stack <= risk - s.to_call:
+            rr = 0.0       # nothing left to re-raise with; those hands just call
+
         # Hands that call = the strongest (1 - fold) share, minus the top `rr` share
         cont = continuing_weights(combos, weights, s.board, 1 - fold, order)
         top = continuing_weights(combos, weights, s.board, rr, order)
         called = [c - t for c, t in zip(cont, top)]
         eq_called = weighted_equity(per_combo, called) if sum(called) > 1e-9 else equity
+
+        # When villain re-raises (treated as all-in), hero calls or folds - whichever is better.
+        rr_value, answer = None, None
+        if rr > 0:
+            eq_rr = weighted_equity(per_combo, top)
+            rr_value, answer = ev_vs_shove(s.pot, s.to_call, risk, s.hero_stack,
+                                           s.villain_stack, eq_rr)
+
         ev = ev_raise(s.pot, s.to_call, risk, fold, eq_called * real,
-                      s.villain_stack, reraise_pct=rr)
+                      s.villain_stack, reraise_pct=rr, reraise_value=rr_value)
         return Option(action, round(risk, 2), ev, fold, eq_called,
-                      breakeven_fold_pct(s.pot, risk))
+                      breakeven_fold_pct(s.pot, risk), rr, answer)
 
     # 4. options
     options: list[Option] = []

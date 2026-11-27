@@ -169,6 +169,38 @@ def test_value_raise_holds_even_with_no_folds():
     assert d.numbers["fold_sensitivity"]["holds_if_folds_at_least"] == 0.0
 
 
+# --- 4E: villain re-raises ---------------------------------------------------------------
+
+def test_dont_raise_top_pair_into_a_nit():
+    # A Nit who bets and then re-raises has sets and two pair: just call.
+    assert decide(spot(villain_type="nit"), **FAST).best.action == "call"
+
+
+def test_raise_top_pair_vs_a_calling_station():
+    # Stations rarely re-raise and call with worse: raise for value.
+    assert decide(spot(villain_type="calling_station"), **FAST).best.action in ("raise", "allin")
+
+
+def test_raises_report_reraise_chance_and_answer():
+    d = decide(spot(villain_type="nit"), **FAST)
+    r = next(o for o in d.options if o.action == "raise")
+    assert 0 < r.reraise_pct < 1
+    assert r.vs_reraise in ("call", "fold")
+
+
+def test_allin_cannot_be_reraised():
+    d = decide(spot(villain_type="nit", hero_stack=60, villain_stack=60), **FAST)
+    shove = next(o for o in d.options if o.action == "allin")
+    assert shove.reraise_pct == 0
+
+
+def test_aces_call_a_4bet():
+    d = decide(spot(street="preflop", board=[], hero_cards=["As", "Ah"],
+                    pot=9, to_call=6), **FAST)
+    r = next(o for o in d.options if o.action == "raise")
+    assert r.vs_reraise == "call"
+
+
 # --- the building blocks -------------------------------------------------------------
 
 def test_in_position():
