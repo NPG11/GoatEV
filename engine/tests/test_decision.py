@@ -1,8 +1,8 @@
 import pytest
 
 from goatev_engine.decision import (
-    decide, fold_chance, in_position, narrow_by_flop_action, playability,
-    realization, villain_flop_action,
+    decide, fold_chance, hero_outs, in_position, narrow_by_flop_action,
+    playability, realization, villain_flop_action,
 )
 from goatev_engine.numbers import pot_odds
 from goatev_engine.scenario import Scenario, ScenarioError
@@ -199,6 +199,53 @@ def test_aces_call_a_4bet():
                     pot=9, to_call=6), **FAST)
     r = next(o for o in d.options if o.action == "raise")
     assert r.vs_reraise == "call"
+
+
+# --- 4F: implied and reverse implied odds -------------------------------------------------
+
+DRAW = dict(hero_cards=["Kc", "Qc"], board=["As", "7c", "2c"], pot=35, to_call=15)
+WEAK_PAIR = dict(hero_cards=["8s", "8h"], board=["Kd", "9c", "4s"], pot=35, to_call=15)
+
+
+def test_hero_outs():
+    assert hero_outs(spot(**DRAW)) == 9                                   # flush draw
+    assert hero_outs(spot(hero_cards=["9s", "8s"], board=["7c", "6d", "2h"])) == 8
+    assert hero_outs(spot(hero_cards=["9c", "8c"], board=["7c", "6c", "2h"])) == 15
+    assert hero_outs(spot()) == 0                                         # top pair, no draw
+
+
+def test_draws_get_bigger_implied_odds_vs_a_station():
+    station = decide(spot(villain_type="calling_station", **DRAW), **FAST).numbers
+    nit = decide(spot(villain_type="nit", **DRAW), **FAST).numbers
+    assert station["implied_odds_bonus"] > nit["implied_odds_bonus"] > 0
+
+
+def test_implied_bonus_formula():
+    # 9 outs / 47 x payoff 0.40 x later bet min(behind 165, pot after call 50) = 50
+    from goatev_engine.decision import future_streets
+    from goatev_engine.villains import get_profile
+    f = future_streets(spot(**DRAW), get_profile("unknown"), equity=0.5, call=15)
+    assert f["implied_bonus"] == pytest.approx(9 / 47 * 0.40 * 50)
+
+
+def test_weak_pair_penalty_only_when_behind_more_than_ahead():
+    from goatev_engine.decision import future_streets
+    from goatev_engine.villains import get_profile
+    p = get_profile("unknown")
+    behind = future_streets(spot(**WEAK_PAIR), p, equity=0.3, call=15)
+    ahead = future_streets(spot(**WEAK_PAIR), p, equity=0.6, call=15)
+    assert behind["reverse_penalty"] == pytest.approx((0.7 - 0.3) * 0.30 * 50)
+    assert ahead["reverse_penalty"] == 0
+
+
+def test_weak_pair_folds_to_a_nit_but_calls_a_maniac():
+    assert decide(spot(villain_type="nit", **WEAK_PAIR), **FAST).best.action == "fold"
+    assert decide(spot(villain_type="maniac", **WEAK_PAIR), **FAST).best.action == "call"
+
+
+def test_no_future_adjustment_preflop():
+    d = decide(spot(street="preflop", board=[], hero_cards=["Js", "Jh"], pot=9, to_call=6), **FAST)
+    assert d.numbers["implied_odds_bonus"] == 0 and d.numbers["reverse_implied_penalty"] == 0
 
 
 # --- the building blocks -------------------------------------------------------------

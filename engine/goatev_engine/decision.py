@@ -14,7 +14,8 @@ Folding is always worth $0. Every other option is measured against that.
 from dataclasses import dataclass, field
 
 from .calling import (
-    combo_class, continuing_weights, hand_category, max_fold_share, strength_order,
+    combo_class, continuing_weights, hand_category, has_flush_draw,
+    has_open_ended_draw, max_fold_share, strength_order,
 )
 from .ranges import combo_count
 from .strength import chen_score
@@ -50,9 +51,10 @@ PLAYABILITY_MIN, PLAYABILITY_MAX = 0.75, 1.10
 POSTFLOP_ORDER = ("SB", "BB", "UTG", "UTG1", "MP", "LJ", "HJ", "CO", "BTN")
 
 LIMITATIONS = (
-    "One street only: after a call, the hand is treated as going straight to "
-    "showdown (no extra money won or lost on later streets). Preflop this is "
-    "softened with an equity-realization factor.",
+    "Later streets are estimated, not simulated: flop calls get an implied-odds "
+    "bonus for strong draws and a reverse-implied-odds penalty for weak pairs, "
+    "and preflop uses an equity-realization factor. There is no full turn/river "
+    "game tree.",
     "When villain re-raises hero's bet or raise (a flop raise or a preflop "
     "4-bet), it is treated as all-in, and hero takes the better of calling "
     "or folding.",
@@ -144,6 +146,50 @@ def narrow_by_flop_action(combos, weights, board, profile, action):
             kept_c.append(c)
             kept_w.append(w2)
     return kept_c, kept_w
+
+
+FLUSH_DRAW_OUTS, STRAIGHT_DRAW_OUTS, COMBO_DRAW_OUTS = 9, 8, 15
+UNSEEN_ON_TURN = 47    # 52 - your 2 cards - 3 on the flop
+
+
+def hero_outs(s: Scenario) -> int:
+    """Outs for a strong draw: flush draw 9, open-ended straight draw 8, both 15."""
+    hand = tuple(s.hero_cards)
+    flush = has_flush_draw(hand, s.board)
+    straight = has_open_ended_draw(hand, s.board)
+    if flush and straight:
+        return COMBO_DRAW_OUTS
+    return FLUSH_DRAW_OUTS if flush else STRAIGHT_DRAW_OUTS if straight else 0
+
+
+def future_streets(s: Scenario, profile, equity: float, call: float) -> dict:
+    """Money expected to change hands AFTER a flop call (turn and river).
+
+    implied_bonus    with a draw: hit on the turn (outs / 47) x how much this
+                     villain type pays off x one pot-size bet later.
+    reverse_penalty  with a weak pair: later bets cost you when you're behind
+                     and pay you when you're ahead, so the NET is
+                     (chance behind - chance ahead) x how often this villain
+                     keeps betting x one pot-size bet later - and only when
+                     you're behind more often than ahead.
+    "One pot-size bet later" is capped by the chips left behind.
+    """
+    out = {"hero_hand_type": None, "outs": 0, "implied_bonus": 0.0, "reverse_penalty": 0.0}
+    if s.street != "flop" or call <= 0:
+        return out
+    hero_type = hand_category(tuple(s.hero_cards), s.board)
+    out["hero_hand_type"] = hero_type
+    pot_after = s.pot + call
+    behind = min(s.hero_stack - call, s.villain_stack)
+    later_bet = max(0.0, min(behind, pot_after))
+
+    if hero_type == "draw":
+        out["outs"] = hero_outs(s)
+        out["implied_bonus"] = out["outs"] / UNSEEN_ON_TURN * profile.payoff_rate * later_bet
+    elif hero_type == "weak_pair":
+        behind_minus_ahead = (1 - equity) - equity
+        out["reverse_penalty"] = max(0.0, behind_minus_ahead) * profile.barrel_rate * later_bet
+    return out
 
 
 def realization(s: Scenario) -> float:
@@ -256,11 +302,15 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0,
     options: list[Option] = []
     allin_ok = stack_to_pot <= ALLIN_SPR
 
+    future = future_streets(s, profile, equity, call_amount(s.to_call, s.hero_stack))
+
     if s.to_call > 0:
         options.append(Option("fold", 0.0, 0.0))
         call = call_amount(s.to_call, s.hero_stack)
         pot_if_called = s.pot - (s.to_call - call)   # short call: excess goes back
-        options.append(Option("call", call, ev_call(pot_if_called, call, equity * real)))
+        call_ev = (ev_call(pot_if_called, call, equity * real)
+                   + future["implied_bonus"] - future["reverse_penalty"])
+        options.append(Option("call", call, call_ev))
 
         if s.hero_stack > call and s.villain_stack > 0:
             raise_to = RAISE_MULTIPLIER * (s.to_call + posted)
@@ -330,5 +380,9 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0,
         "fold_rate_source": "your override" if fold_override is not None else "estimate",
         "villain_max_fold": fold_cap,
         "fold_sensitivity": sensitivity,
+        "hero_hand_type": future["hero_hand_type"],
+        "hero_outs": future["outs"],
+        "implied_odds_bonus": future["implied_bonus"],
+        "reverse_implied_penalty": future["reverse_penalty"],
     }
     return Decision(best, options, close, numbers, highest)

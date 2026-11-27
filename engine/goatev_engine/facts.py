@@ -112,6 +112,13 @@ def build_facts(s: Scenario, d: Decision) -> dict:
             "close_spot": d.close,
         },
     }
+    if n.get("implied_odds_bonus"):
+        facts["math"]["your_outs"] = f"{n['hero_outs']}"
+        facts["math"]["implied_odds_bonus_on_call"] = (
+            f"{dollars(n['implied_odds_bonus'])} ({bb(n['implied_odds_bonus'], bbv)})")
+    if n.get("reverse_implied_penalty"):
+        facts["math"]["reverse_implied_odds_penalty_on_call"] = (
+            f"{dollars(n['reverse_implied_penalty'])} ({bb(n['reverse_implied_penalty'], bbv)})")
     sensitivity = fold_sensitivity_sentence(n)
     if sensitivity:
         facts["recommendation"]["how_sure"] = sensitivity

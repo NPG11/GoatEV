@@ -16,7 +16,8 @@ with the exact math and a plain-language explanation, adjusted for the opponent 
 | Engine Step 4A: EV formulas (fold, call, bet/raise with fold equity) | ✅ |
 | Engine Step 4B: decision engine — `decide(scenario)` → best play + number sheet | ✅ |
 | Step 5: explanations — Claude explains the engine's numbers, code checks every number, template fallback | ✅ |
-| Engine limits: flop-bet range narrowing, fold-rate honesty, flop re-raises, implied odds | ⏳ next |
+| Engine 4C–4F: flop action narrows range, fold-rate sensitivity + override, villain re-raises, implied / reverse implied odds | ✅ |
+| API (FastAPI) | ⏳ next |
 | API, frontend, database, deploy | later |
 
 ## Engine
