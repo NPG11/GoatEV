@@ -21,6 +21,12 @@ POSITIONS = ("UTG", "UTG1", "MP", "LJ", "HJ", "CO", "BTN", "SB", "BB")
 
 VILLAIN_TYPES = ("unknown", "nit", "calling_station", "lag", "maniac")
 
+# What villain did PREFLOP. This picks which chart their range comes from.
+#   open       raised first in          call       called someone's raise
+#   3bet       re-raised                call_3bet  opened, then called a 3-bet
+#   4bet       re-raised a 3-bet        limp       just called the big blind
+VILLAIN_ACTIONS = ("open", "call", "3bet", "call_3bet", "4bet", "limp")
+
 STREETS = ("preflop", "flop")  # v1 only. turn/river come later.
 
 # How many board cards each street must have.
@@ -58,6 +64,7 @@ class Scenario:
     hero_position: str
     villain_position: str
     villain_type: str = "unknown"
+    villain_action: str = "open"     # villain's preflop action (see VILLAIN_ACTIONS)
 
     # Stacks BEHIND (chips not yet put in the pot), at the moment of decision
     hero_stack: float = 200.0
@@ -100,6 +107,8 @@ class Scenario:
 
         if self.villain_type not in VILLAIN_TYPES:
             e.append(f"unknown villain type '{self.villain_type}'")
+        if self.villain_action not in VILLAIN_ACTIONS:
+            e.append(f"unknown villain action '{self.villain_action}'")
 
         # Street + board size
         if self.street not in STREETS:

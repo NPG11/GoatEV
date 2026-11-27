@@ -207,3 +207,77 @@ def _monte_carlo(hero, board, kept, cards_to_come, iterations, seed) -> EquityRe
             losses += 1
 
     return EquityResult(wins, ties, losses, exact=False, combos_used=len(kept))
+
+
+# ---------------------------------------------------------------------------
+# Equity against EACH villain combo (used by the decision engine)
+# ---------------------------------------------------------------------------
+
+_CARD_INT = {c: Card.new(c) for c in FULL_DECK}
+
+DEFAULT_SAMPLES_PER_COMBO = 300
+
+
+def equity_by_combo(
+    hero: list[str],
+    combos: list[Combo],
+    board: list[str] = (),
+    *,
+    samples: int = DEFAULT_SAMPLES_PER_COMBO,
+    seed: int | None = None,
+) -> list[float]:
+    """Hero's equity against each combo separately, in the same order.
+
+    Why: the decision engine needs equity against DIFFERENT slices of
+    villain's range (all of it for a call, only the calling hands for a
+    raise). With one number per combo, any slice is just a weighted
+    average - no need to recompute.
+
+    Exact when <= 2 cards are to come (flop). Preflop: `samples` random
+    runouts per combo.
+    """
+    hero, board = list(hero), list(board)
+    _check_known_cards(hero + board)
+    known = set(hero + board)
+    hero_t = [_CARD_INT[c] for c in hero]
+    board_t = [_CARD_INT[c] for c in board]
+    to_come = 5 - len(board)
+    exact = to_come <= 2
+    rng = random.Random(seed)
+    hero_score_cache: dict[tuple, int] = {}   # runout -> hero's score (exact mode)
+
+    out = []
+    for combo in combos:
+        if known & set(combo):
+            raise ValueError(f"combo {combo} uses a known card")
+        villain_t = [_CARD_INT[c] for c in combo]
+        unseen = [_CARD_INT[c] for c in FULL_DECK if c not in known and c not in combo]
+
+        if exact:
+            runouts = combinations(unseen, to_come)
+        else:
+            runouts = (rng.sample(unseen, to_come) for _ in range(samples))
+
+        score = n = 0.0
+        for runout in runouts:
+            full = board_t + list(runout)
+            if exact:
+                key = tuple(sorted(runout))
+                h = hero_score_cache.get(key)
+                if h is None:
+                    h = hero_score_cache[key] = _EVALUATOR.evaluate(full, hero_t)
+            else:
+                h = _EVALUATOR.evaluate(full, hero_t)
+            v = _EVALUATOR.evaluate(full, villain_t)
+            score += 1.0 if h < v else 0.5 if h == v else 0.0
+            n += 1
+        out.append(score / n)
+    return out
+
+
+def weighted_equity(per_combo: list[float], weights: list[float]) -> float:
+    """Average equity over a set of combos, each counted by its weight."""
+    total = sum(weights)
+    if total <= 0:
+        raise ValueError("weights must add up to more than 0")
+    return sum(e * w for e, w in zip(per_combo, weights)) / total
