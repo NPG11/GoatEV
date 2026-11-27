@@ -184,9 +184,9 @@ def explain(
     d = decision or decide(s)
     facts = build_facts(s, d)
     verdict = facts["recommendation"]["play"].capitalize()
-    verdict += f"  (EV {facts['recommendation']['ev']})"
+    verdict += f" · EV {facts['recommendation']['ev']}"
     if facts["recommendation"]["close_spot"]:
-        verdict += "  - close spot"
+        verdict += " · close spot"
 
     def from_template(bad=(), error=None):
         return Explanation(verdict, template_explanation(facts), "template",

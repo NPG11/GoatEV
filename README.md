@@ -17,7 +17,8 @@ with the exact math and a plain-language explanation, adjusted for the opponent 
 | Engine Step 4B: decision engine — `decide(scenario)` → best play + number sheet | ✅ |
 | Step 5: explanations — Claude explains the engine's numbers, code checks every number, template fallback | ✅ |
 | Engine 4C–4F: flop action narrows range, fold-rate sensitivity + override, villain re-raises, implied / reverse implied odds | ✅ |
-| API (FastAPI) | ⏳ next |
+| API (FastAPI): /health, /villain-types, /validate, /coach | ✅ |
+| Frontend (Next.js): Scenario Builder, coach screen | ⏳ next |
 | API, frontend, database, deploy | later |
 
 ## Engine
@@ -35,6 +36,28 @@ Explanations use Claude when `ANTHROPIC_API_KEY` is set in your environment
 cd engine
 python -m goatev_engine.explain
 ```
+
+## API
+
+```powershell
+python -m pip install -e engine          # once: makes the engine importable
+cd api
+python -m pytest -q                      # API tests (no server or Claude needed)
+python -m uvicorn app.main:app --reload  # start the server
+```
+
+Then open http://localhost:8000/docs to try every endpoint in the browser.
+
+| Endpoint | Does |
+|---|---|
+| `GET /health` | Server is up |
+| `GET /villain-types` | The 5 villain types |
+| `POST /validate` | Lists every problem with a hand |
+| `POST /coach` | Hand in → verdict, options with EV, numbers, explanation |
+
+Settings (environment variables): `ANTHROPIC_API_KEY` (Claude explanations),
+`GOATEV_CORS_ORIGINS` (frontend addresses, default `http://localhost:3000`),
+`GOATEV_SAMPLES` (equity samples per villain hand, default 200).
 
 ## Stack
 
