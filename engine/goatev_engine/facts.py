@@ -53,6 +53,39 @@ def fold_sensitivity_sentence(n: dict) -> str | None:
             f"than {pct(more)} (estimated fold rate {est}).")
 
 
+_HAND_NAMES = {1: "a straight flush", 2: "four of a kind", 3: "a full house",
+               4: "a flush", 5: "a straight", 6: "three of a kind", 7: "two pair",
+               8: "one pair", 9: "high card only"}
+
+
+def describe_hero_hand(s: Scenario) -> str:
+    """Exact, engine-checked description of hero's hand on this board, so the
+    explanation never has to (or is allowed to) work it out itself."""
+    from treys import Card, Evaluator
+    from .calling import _made_category, has_flush_draw, has_open_ended_draw
+    from .scenario import RANKS
+
+    hand = tuple(s.hero_cards)
+    ev = Evaluator()
+    made = _HAND_NAMES[ev.get_rank_class(ev.evaluate(
+        [Card.new(c) for c in s.board], [Card.new(c) for c in hand]))]
+    parts = [made]
+    cat = _made_category(hand, s.board)
+    if cat == "top_pair":
+        parts.append("an overpair" if hand[0][0] == hand[1][0] else "top pair")
+    elif cat == "weak_pair":
+        parts.append("a pair below the top board card")
+    if len(s.board) < 5:
+        if has_flush_draw(hand, s.board):
+            parts.append("a flush draw (9 outs)")
+        if has_open_ended_draw(hand, s.board):
+            parts.append("an open-ended straight draw (8 outs)")
+    top_board = max(RANKS.index(c[0]) for c in s.board)
+    overs = [c for c in hand if RANKS.index(c[0]) > top_board]
+    parts.append(f"{len(overs)} overcard{'s' if len(overs) != 1 else ''} to the board")
+    return ", ".join(parts)
+
+
 def build_facts(s: Scenario, d: Decision) -> dict:
     """Everything the explanation may say, as display-ready strings."""
     n = d.numbers
@@ -112,6 +145,8 @@ def build_facts(s: Scenario, d: Decision) -> dict:
             "close_spot": d.close,
         },
     }
+    if s.board:
+        facts["hand"]["your_hand_right_now"] = describe_hero_hand(s)
     if n.get("implied_odds_bonus"):
         facts["math"]["your_outs"] = f"{n['hero_outs']}"
         facts["math"]["implied_odds_bonus_on_call"] = (

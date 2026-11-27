@@ -46,6 +46,9 @@ Rules:
   recommended option was chosen.
 - If the fact sheet has "how_sure", include it: it tells the player how far
   the fold-rate estimate can be wrong before the advice changes.
+- Describe the player's hand only as "your_hand_right_now" says (made hand,
+  draws, outs, overcards). Never add draws, outs, overcards, kickers or
+  blockers that it doesn't list.
 - Do not restate the recommendation as a headline; the app shows it above
   your text.
 
@@ -77,6 +80,7 @@ class Explanation:
     limitations: tuple[str, ...] = ()
     facts: dict = field(default_factory=dict)
     error: str | None = None         # why Claude wasn't used, if it wasn't
+    attempts: int = 0                # Claude requests made (2 = first text failed the check)
 
 
 # ---------------------------------------------------------------------------
@@ -188,10 +192,13 @@ def explain(
     if facts["recommendation"]["close_spot"]:
         verdict += " · close spot"
 
+    attempts = 0
+
     def from_template(bad=(), error=None):
         return Explanation(verdict, template_explanation(facts), "template",
                            check_passed=True, bad_numbers=list(bad),
-                           limitations=d.limitations, facts=facts, error=error)
+                           limitations=d.limitations, facts=facts, error=error,
+                           attempts=attempts)
 
     if not use_claude:
         return from_template()
@@ -200,11 +207,13 @@ def explain(
         client = client or _default_client()
         messages = [{"role": "user", "content":
                      "FACT SHEET:\n" + json.dumps(facts, indent=2)}]
+        attempts = 1
         text, content = _ask_claude(client, messages)
         bad = find_bad_numbers(text, facts)
         wrong_play = mentions_other_play(text, facts)
 
         if bad or wrong_play:
+            first_bad = bad
             # One retry, telling Claude exactly what was wrong.
             problems = []
             if bad:
@@ -217,14 +226,18 @@ def explain(
                  "Please rewrite it. Problem: " + "; ".join(problems) +
                  ". Use only numbers exactly as written in the fact sheet."},
             ]
+            attempts = 2
             text, content = _ask_claude(client, messages)
             bad = find_bad_numbers(text, facts)
             wrong_play = mentions_other_play(text, facts)
             if bad or wrong_play:
                 return from_template(bad, error="Claude's text failed the number check twice")
+            return Explanation(verdict, text, "claude", check_passed=True,
+                               bad_numbers=first_bad, limitations=d.limitations,
+                               facts=facts, attempts=attempts)
 
         return Explanation(verdict, text, "claude", check_passed=True,
-                           limitations=d.limitations, facts=facts)
+                           limitations=d.limitations, facts=facts, attempts=attempts)
 
     except Exception as e:   # no key, network down, refusal, bad response...
         return from_template(error=f"{type(e).__name__}: {e}")
@@ -232,7 +245,10 @@ def explain(
 
 if __name__ == "__main__":
     # Demo:  python -m goatev_engine.explain
-    # Uses Claude if ANTHROPIC_API_KEY is set, otherwise the template.
+    # Uses Claude if ANTHROPIC_API_KEY is set (or in GoatEV/.env), otherwise the template.
+    from pathlib import Path
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
     demo = Scenario(hero_position="BTN", villain_position="CO", villain_action="open",
                     villain_type="nit", hero_stack=180, villain_stack=180, street="flop",
                     hero_cards=["As", "Kd"], board=["Ah", "7c", "2d"], pot=30, to_call=10)

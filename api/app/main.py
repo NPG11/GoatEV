@@ -13,8 +13,14 @@ then open http://localhost:8000/docs to try every endpoint in the browser.
 
 import os
 from functools import lru_cache
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
+
+# Secrets and settings live in GoatEV/.env (never committed - see .env.example).
+# Real environment variables win over the file.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 from fastapi.middleware.cors import CORSMiddleware
 
 from goatev_engine.decision import Decision, Option, decide
@@ -154,5 +160,6 @@ def coach(req: CoachIn, samples: int = Depends(get_samples), claude=Depends(get_
         explanation=e.body,
         explained_by=e.source,
         explain_note=note,
+        claude_attempts=e.attempts,
         limitations=list(d.limitations),
     )

@@ -76,6 +76,28 @@ def test_allowed_numbers_include_fact_values(facts):
     assert 30.0 in nums and 25.0 in nums
 
 
+@pytest.mark.parametrize("cards,board,expected,not_expected", [
+    (["Kc", "Qc"], ["As", "7c", "2c"], ["flush draw (9 outs)", "0 overcards"], ["pair"]),
+    (["As", "Kd"], ["Ah", "7c", "2d"], ["one pair", "top pair"], ["draw"]),
+    (["Ks", "Kd"], ["Qh", "7c", "2d"], ["an overpair"], ["top pair"]),
+    (["8s", "8h"], ["Kd", "9c", "4s"], ["below the top board card"], ["overpair"]),
+    (["9s", "8s"], ["7c", "6d", "2h"], ["open-ended straight draw (8 outs)", "2 overcards"], []),
+])
+def test_hero_hand_description_is_exact(cards, board, expected, not_expected):
+    from goatev_engine.facts import describe_hero_hand
+    s = Scenario(hero_position="BTN", villain_position="CO", street="flop",
+                 hero_cards=cards, board=board, pot=20, to_call=0)
+    text = describe_hero_hand(s)
+    for e in expected:
+        assert e in text
+    for n in not_expected:
+        assert n not in text
+
+
+def test_fact_sheet_includes_hand_description_on_the_flop(facts):
+    assert "top pair" in facts["hand"]["your_hand_right_now"]
+
+
 # --- the checker ---------------------------------------------------------------------
 
 def test_template_always_passes_the_checker(facts):
@@ -149,6 +171,8 @@ def test_bad_numbers_trigger_one_retry(decision, facts):
                         reply(good_text(facts)))
     e = explain(SPOT, decision, client=client)
     assert e.source == "claude"
+    assert e.attempts == 2
+    assert "$31.50" in e.bad_numbers            # what the first draft got wrong
     assert len(client.calls) == 2
     feedback = client.calls[1]["messages"][-1]["content"]
     assert "$31.50" in feedback

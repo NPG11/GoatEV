@@ -94,4 +94,5 @@ class CoachOut(BaseModel):
     explanation: str
     explained_by: Literal["claude", "template"]
     explain_note: str | None        # why Claude wasn't used, if it wasn't
+    claude_attempts: int = 0        # 2 = Claude's first text failed the number check
     limitations: list[str]
