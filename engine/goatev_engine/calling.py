@@ -147,18 +147,25 @@ def max_fold_share(combos: list[Combo], weights: list[float], board: list[str]) 
     return 1 - strong / total
 
 
+def strength_order(combos: list[Combo], board: list[str]) -> list[int]:
+    """Indexes of `combos`, strongest first. Compute once, reuse many times."""
+    return sorted(range(len(combos)), key=lambda i: strength_key(combos[i], board))
+
+
 def continuing_weights(
     combos: list[Combo], weights: list[float], board: list[str], continue_share: float,
+    order: list[int] | None = None,
 ) -> list[float]:
     """Weights for the hands that CALL, same order as `combos`.
 
     Keeps the strongest hands until they make up `continue_share` of the
     range (by weight). The hand at the edge keeps a partial weight.
-    Folded hands get weight 0.
+    Folded hands get weight 0. Pass `order` (from strength_order) to skip re-sorting.
     """
     if not 0 <= continue_share <= 1:
         raise ValueError("continue_share must be between 0 and 1")
-    order = sorted(range(len(combos)), key=lambda i: strength_key(combos[i], board))
+    if order is None:
+        order = strength_order(combos, board)
     budget = continue_share * sum(weights)
     out = [0.0] * len(combos)
     for i in order:

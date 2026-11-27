@@ -13,11 +13,13 @@ Folding is always worth $0. Every other option is measured against that.
 
 from dataclasses import dataclass, field
 
-from .calling import combo_class, continuing_weights, hand_category, max_fold_share
+from .calling import (
+    combo_class, continuing_weights, hand_category, max_fold_share, strength_order,
+)
 from .ranges import combo_count
 from .strength import chen_score
 from .equity import equity_by_combo, weighted_equity
-from .ev import ev_call, ev_raise
+from .ev import breakeven_fold_pct, ev_call, ev_raise
 from .numbers import call_amount, effective_stack, pot_odds, spr
 from .ranges import range_percent, range_to_combos
 from .scenario import Scenario
@@ -55,7 +57,9 @@ LIMITATIONS = (
     "Villain's flop bet or check narrows their range using estimated betting "
     "frequencies for each kind of hand (strong, top pair, draw, weak pair, air).",
     "After hero bets or raises, villain only folds or calls (no re-raises).",
-    "Villain fold rates are estimates for this player type, not measured stats.",
+    "Villain fold rates are estimates for this player type, not measured stats. "
+    "Each bet shows the folds it needs, the advice shows how far the estimate "
+    "can be off before it changes, and you can override the fold rate.",
 )
 
 
@@ -66,6 +70,7 @@ class Option:
     ev: float                   # average profit vs folding, in chips
     fold_pct: float | None = None
     equity_when_called: float | None = None
+    breakeven_fold: float | None = None    # folds needed if this were a pure bluff
 
     def label(self, big_blind: float) -> str:
         if self.action in ("fold", "check"):
@@ -158,10 +163,28 @@ def fold_chance(base: float, pot: float, to_call: float, risk: float, cap: float
     return min(adjusted, cap)
 
 
+AGGRESSIVE = {"bet", "raise", "allin"}
+
+
+def pick_best(options: list[Option], big_blind: float) -> tuple[Option, Option, bool]:
+    """(recommended, highest_ev, close). Within CLOSE_BB of the top EV the
+    options are basically equal - recommend the one that risks the least
+    (same average profit, smaller swings)."""
+    ranked = sorted(options, key=lambda o: o.ev, reverse=True)
+    highest = ranked[0]
+    near_top = [o for o in ranked if highest.ev - o.ev < CLOSE_BB * big_blind]
+    return min(near_top, key=lambda o: o.amount), highest, len(near_top) > 1
+
+
 # --- the decider --------------------------------------------------------------------
 
-def decide(s: Scenario, *, samples: int = 200, seed: int = 0) -> Decision:
+def decide(s: Scenario, *, samples: int = 200, seed: int = 0,
+           fold_override: float | None = None) -> Decision:
+    """fold_override: your own read on how often villain folds to a bet/raise
+    (0..1). Replaces the villain type's estimate."""
     s.validate()
+    if fold_override is not None and not 0 <= fold_override <= 1:
+        raise ValueError("fold_override must be between 0 and 1")
     profile = get_profile(s.villain_type)
 
     # 2. villain's range, minus cards we can see
@@ -179,7 +202,8 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0) -> Decision:
     per_combo = equity_by_combo(s.hero_cards, combos, s.board, samples=samples, seed=seed)
     equity = weighted_equity(per_combo, weights)
     fold_cap = max_fold_share(combos, weights, s.board)
-    base_fold = _base_fold(s, profile)
+    base_fold = fold_override if fold_override is not None else _base_fold(s, profile)
+    order = strength_order(combos, s.board)   # villain's hands, strongest first
 
     eff = effective_stack(s.hero_stack, s.villain_stack)
     stack_to_pot = spr(eff, s.pot)
@@ -194,19 +218,21 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0) -> Decision:
         fourbet = villain_range(s.villain_type, s.villain_position, "4bet")
         reraise = combo_count(fourbet, s.hero_cards) / sum(weights)
 
-    def aggressive(action: str, risk: float) -> Option:
-        fold = fold_chance(base_fold, s.pot, s.to_call, risk, fold_cap, preflop)
+    def aggressive(action: str, risk: float, base: float | None = None) -> Option:
+        b = base_fold if base is None else base
+        fold = fold_chance(b, s.pot, s.to_call, risk, fold_cap, preflop)
         rr = min(reraise, 1 - fold)
         if action == "allin":
             rr = 0.0       # nothing left to re-raise; those hands just call
         # Hands that call = the strongest (1 - fold) share, minus the top `rr` share
-        cont = continuing_weights(combos, weights, s.board, 1 - fold)
-        top = continuing_weights(combos, weights, s.board, rr)
+        cont = continuing_weights(combos, weights, s.board, 1 - fold, order)
+        top = continuing_weights(combos, weights, s.board, rr, order)
         called = [c - t for c, t in zip(cont, top)]
         eq_called = weighted_equity(per_combo, called) if sum(called) > 1e-9 else equity
         ev = ev_raise(s.pot, s.to_call, risk, fold, eq_called * real,
                       s.villain_stack, reraise_pct=rr)
-        return Option(action, round(risk, 2), ev, fold, eq_called)
+        return Option(action, round(risk, 2), ev, fold, eq_called,
+                      breakeven_fold_pct(s.pot, risk))
 
     # 4. options
     options: list[Option] = []
@@ -242,14 +268,28 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0) -> Decision:
         if allin_ok and s.hero_stack > 0:
             options.append(aggressive("allin", s.hero_stack))
 
-    # 5. pick the best. If several options are within CLOSE_BB of the top EV,
-    #    they're basically equal - recommend the one that risks the least money
-    #    (same average profit, smaller swings).
-    ranked = sorted(options, key=lambda o: o.ev, reverse=True)
-    highest = ranked[0]
-    near_top = [o for o in ranked if highest.ev - o.ev < CLOSE_BB * s.big_blind]
-    best = min(near_top, key=lambda o: o.amount)
-    close = len(near_top) > 1
+    # 5. pick the best
+    best, highest, close = pick_best(options, s.big_blind)
+
+    # 5b. how much does the answer depend on our fold-rate guess?
+    #     Re-score at every fold rate from 0% to 95% and find where the
+    #     recommendation switches between aggressive (bet/raise) and passive.
+    def aggressive_wins_at(b: float) -> bool:
+        rescored = [aggressive(o.action, o.amount, b) if o.action in AGGRESSIVE else o
+                    for o in options]
+        return pick_best(rescored, s.big_blind)[0].action in AGGRESSIVE
+
+    sensitivity = None
+    if any(o.action in AGGRESSIVE for o in options):
+        grid = [i / 100 for i in range(0, 96)]
+        if best.action in AGGRESSIVE:
+            flips = [b for b in grid if b < base_fold and not aggressive_wins_at(b)]
+            sensitivity = {"best_is_aggressive": True,
+                           "holds_if_folds_at_least": (max(flips) + 0.01) if flips else 0.0}
+        else:
+            flips = [b for b in grid if b > base_fold and aggressive_wins_at(b)]
+            sensitivity = {"best_is_aggressive": False,
+                           "aggression_wins_if_folds_more_than": min(flips) if flips else None}
 
     # 6. every number, for the explanation step
     numbers = {
@@ -269,6 +309,8 @@ def decide(s: Scenario, *, samples: int = 200, seed: int = 0) -> Decision:
         "villain_combos_before_flop_action": combos_before,
         "villain_flop_action": flop_action,
         "villain_base_fold": base_fold,
+        "fold_rate_source": "your override" if fold_override is not None else "estimate",
         "villain_max_fold": fold_cap,
+        "fold_sensitivity": sensitivity,
     }
     return Decision(best, options, close, numbers, highest)

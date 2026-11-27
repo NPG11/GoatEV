@@ -123,6 +123,52 @@ def test_narrowing_keeps_order_and_drops_nothing_with_weight():
     assert c == combos and w == [pytest.approx(0.85), pytest.approx(0.05)]
 
 
+# --- 4D: fold-rate honesty --------------------------------------------------------------
+
+AIR = dict(hero_cards=["Qs", "Jh"], pot=20, to_call=0)
+
+
+def test_every_bet_shows_the_folds_it_needs():
+    d = decide(spot(villain_type="nit", **AIR), **FAST)
+    for o in d.options:
+        if o.action in ("bet", "raise", "allin"):
+            assert o.breakeven_fold == pytest.approx(o.amount / (20 + o.amount))
+
+
+def test_override_changes_the_advice():
+    station = spot(villain_type="calling_station", **AIR)
+    assert decide(station, **FAST).best.action == "check"
+    d = decide(station, fold_override=0.7, **FAST)
+    assert d.best.action == "bet"
+    assert d.numbers["fold_rate_source"] == "your override"
+
+
+def test_bad_override_is_rejected():
+    with pytest.raises(ValueError, match="fold_override"):
+        decide(spot(), fold_override=1.5, **FAST)
+
+
+def test_sensitivity_for_a_bluff_is_below_the_estimate():
+    d = decide(spot(villain_type="nit", **AIR), **FAST)
+    sens = d.numbers["fold_sensitivity"]
+    assert sens["best_is_aggressive"]
+    assert 0 < sens["holds_if_folds_at_least"] <= d.numbers["villain_base_fold"]
+
+
+def test_sensitivity_for_a_check_is_above_the_estimate():
+    d = decide(spot(villain_type="calling_station", **AIR), **FAST)
+    sens = d.numbers["fold_sensitivity"]
+    assert not sens["best_is_aggressive"]
+    assert sens["aggression_wins_if_folds_more_than"] > d.numbers["villain_base_fold"]
+
+
+def test_value_raise_holds_even_with_no_folds():
+    # Top pair facing a small bet from a station: raise for value, folds don't matter.
+    d = decide(spot(villain_type="calling_station"), **FAST)
+    assert d.best.action in ("raise", "allin")
+    assert d.numbers["fold_sensitivity"]["holds_if_folds_at_least"] == 0.0
+
+
 # --- the building blocks -------------------------------------------------------------
 
 def test_in_position():

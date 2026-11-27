@@ -34,6 +34,25 @@ def _option_name(action: str, amount: float, big_blind: float) -> str:
     return f"{verb} {dollars(amount)}"
 
 
+def fold_sensitivity_sentence(n: dict) -> str | None:
+    """How far off our fold-rate guess can be before the advice changes."""
+    sens = n.get("fold_sensitivity")
+    if not sens:
+        return None
+    est = pct(n["villain_base_fold"])
+    if sens["best_is_aggressive"]:
+        need = sens["holds_if_folds_at_least"]
+        if need <= 0:
+            return f"Betting is best even if villain never folds (estimated fold rate {est})."
+        return (f"This holds as long as villain folds at least {pct(need)} "
+                f"(estimated fold rate {est}).")
+    more = sens["aggression_wins_if_folds_more_than"]
+    if more is None:
+        return f"Betting or raising would not be better even if villain folded very often."
+    return (f"Betting or raising would only become better if villain folded more "
+            f"than {pct(more)} (estimated fold rate {est}).")
+
+
 def build_facts(s: Scenario, d: Decision) -> dict:
     """Everything the explanation may say, as display-ready strings."""
     n = d.numbers
@@ -80,6 +99,7 @@ def build_facts(s: Scenario, d: Decision) -> dict:
             "villain_range_size": pct(n["villain_range_pct"]),
             "villain_combos_after_blockers": f"{n['villain_combos']:.0f}",
             "villain_usual_fold_rate": pct(n["villain_base_fold"]),
+            "fold_rate_source": n["fold_rate_source"],
             "villain_most_they_can_fold": pct(n["villain_max_fold"]),
         },
         "options_best_first": options,
@@ -89,10 +109,15 @@ def build_facts(s: Scenario, d: Decision) -> dict:
             "close_spot": d.close,
         },
     }
+    sensitivity = fold_sensitivity_sentence(n)
+    if sensitivity:
+        facts["recommendation"]["how_sure"] = sensitivity
+    if n.get("villain_flop_action"):
+        facts["hand"]["villain_flop_action"] = n["villain_flop_action"]
     if s.street == "preflop":
         facts["math"]["equity_you_realize"] = pct(n["realization"])
         facts["math"]["in_position"] = n["in_position"]
-    if runner_up is not None:
+    if runner_up is not None and best is d.highest_ev:
         facts["recommendation"]["edge_over_next_best"] = (
             f"{dollars(best.ev - runner_up.ev)} ({bb(best.ev - runner_up.ev, bbv)})")
         facts["recommendation"]["next_best"] = _option_name(runner_up.action, runner_up.amount, bbv)

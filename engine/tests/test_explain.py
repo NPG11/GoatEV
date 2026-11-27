@@ -82,6 +82,16 @@ def test_template_always_passes_the_checker(facts):
     assert find_bad_numbers(template_explanation(facts), facts) == []
 
 
+def test_close_spot_never_shows_a_negative_edge():
+    s = Scenario(hero_position="BTN", villain_position="CO", villain_action="open",
+                 villain_type="nit", hero_stack=180, villain_stack=180, street="flop",
+                 hero_cards=["Qs", "Jh"], board=["Ah", "7c", "2d"], pot=20, to_call=0)
+    f = build_facts(s, decide(s, samples=60, seed=1))
+    edge = f["recommendation"].get("edge_over_next_best", "")
+    assert not edge.startswith("-")
+    assert "how_sure" in f["recommendation"]
+
+
 def test_invented_numbers_are_caught(facts):
     text = "Raise to $31.50 because you have 62.5% equity and a 44 BB edge."
     bad = find_bad_numbers(text, facts)

@@ -44,6 +44,8 @@ Rules:
   never suggest a different play.
 - If close_spot is true, say plainly that it's close and why the
   recommended option was chosen.
+- If the fact sheet has "how_sure", include it: it tells the player how far
+  the fold-rate estimate can be wrong before the advice changes.
 - Do not restate the recommendation as a headline; the app shows it above
   your text.
 
@@ -131,10 +133,12 @@ def template_explanation(facts: dict) -> str:
         lines.append(
             f"They fold about {best['villain_folds']} of the time here, and when they "
             f"call you still have {best['your_equity_when_called']}.")
-    if "next_best" in rec:
+    if "edge_over_next_best" in rec:
         lines.append(f"That's {rec['edge_over_next_best']} better than {rec['next_best']}.")
     if rec.get("close_spot"):
         lines.append(rec.get("note", "This is a close spot; the lower-risk option is recommended."))
+    if rec.get("how_sure"):
+        lines.append(rec["how_sure"])
     return " ".join(lines)
 
 
