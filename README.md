@@ -15,15 +15,24 @@ with the exact math and a plain-language explanation, adjusted for the opponent 
 | Engine Step 3C: villain types reshape ranges + fold rates, limp ranges | ✅ |
 | Engine Step 4A: EV formulas (fold, call, bet/raise with fold equity) | ✅ |
 | Engine Step 4B: decision engine — `decide(scenario)` → best play + number sheet | ✅ |
-| Step 5: LLM explanation (Claude explains engine numbers, code checks them) | ⏳ next |
+| Step 5: explanations — Claude explains the engine's numbers, code checks every number, template fallback | ✅ |
+| Engine limits: flop-bet range narrowing, fold-rate honesty, flop re-raises, implied odds | ⏳ next |
 | API, frontend, database, deploy | later |
 
 ## Engine
 
 ```powershell
 cd engine
-python -m pip install treys pytest
+python -m pip install treys anthropic pytest
 python -m pytest -q
+```
+
+Explanations use Claude when `ANTHROPIC_API_KEY` is set in your environment
+(never commit the key). Without it, a template explanation is used.
+
+```powershell
+cd engine
+python -m goatev_engine.explain
 ```
 
 ## Stack
