@@ -84,6 +84,19 @@ def test_probabilities_must_be_0_to_1(bad):
         ev_bet(20, 10, bad, 0.5)
 
 
+def test_reraise_makes_hero_lose_the_raise():
+    # Pot 9, hero 3-bets risking 16. Villain folds 50%, 4-bets 10% (hero folds),
+    # calls 40% with hero at 30%: final pot 9 + 16 + 12 = 37.
+    # EV = 0.5 x 9 - 0.1 x 16 + 0.4 x (0.3 x 37 - 16) = 4.5 - 1.6 - 1.96 = 0.94
+    ev = ev_raise(9, 4, 16, fold_pct=0.5, equity_when_called=0.3, reraise_pct=0.1)
+    assert ev == pytest.approx(0.94)
+
+
+def test_fold_plus_reraise_over_100_percent_raises():
+    with pytest.raises(ValueError, match="can't be more than 1"):
+        ev_raise(9, 4, 16, fold_pct=0.8, equity_when_called=0.3, reraise_pct=0.3)
+
+
 # --- bluff math ----------------------------------------------------------------
 
 @pytest.mark.parametrize("pot,risk,needed", [

@@ -27,6 +27,7 @@ might hold. Hands that use a card we can already see are removed first
 import random
 from dataclasses import dataclass
 from itertools import combinations
+from math import comb
 
 from treys import Card, Evaluator
 
@@ -215,7 +216,10 @@ def _monte_carlo(hero, board, kept, cards_to_come, iterations, seed) -> EquityRe
 
 _CARD_INT = {c: Card.new(c) for c in FULL_DECK}
 
-DEFAULT_SAMPLES_PER_COMBO = 300
+# treys checks all 21 five-card hands inside every 7-card hand, so each
+# showdown costs ~15 microseconds in Python. These keep decide() around a second.
+DEFAULT_SAMPLES_PER_COMBO = 200
+MAX_EXACT_SHOWDOWNS = 50_000    # ~50 combos on the flop; bigger ranges sample
 
 
 def equity_by_combo(
@@ -233,8 +237,10 @@ def equity_by_combo(
     raise). With one number per combo, any slice is just a weighted
     average - no need to recompute.
 
-    Exact when <= 2 cards are to come (flop). Preflop: `samples` random
-    runouts per combo.
+    Exact when <= 2 cards are to come (flop) AND the work is small enough
+    (MAX_EXACT_SHOWDOWNS). Otherwise `samples` random runouts per combo:
+    each combo is a bit noisy, but averaged over hundreds of combos the
+    range equity stays accurate.
     """
     hero, board = list(hero), list(board)
     _check_known_cards(hero + board)
@@ -242,7 +248,8 @@ def equity_by_combo(
     hero_t = [_CARD_INT[c] for c in hero]
     board_t = [_CARD_INT[c] for c in board]
     to_come = 5 - len(board)
-    exact = to_come <= 2
+    runouts_each = comb(52 - len(known) - 2, to_come)
+    exact = to_come <= 2 and len(combos) * runouts_each <= MAX_EXACT_SHOWDOWNS
     rng = random.Random(seed)
     hero_score_cache: dict[tuple, int] = {}   # runout -> hero's score (exact mode)
 

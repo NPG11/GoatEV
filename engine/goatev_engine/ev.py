@@ -55,6 +55,7 @@ def ev_raise(
     fold_pct: float,
     equity_when_called: float,
     villain_stack: float = INF,
+    reraise_pct: float = 0.0,
 ) -> float:
     """EV of betting or raising.
 
@@ -66,16 +67,22 @@ def ev_raise(
                         (usually lower than vs villain's whole range:
                         weak hands fold, strong hands call)
     villain_stack       villain's chips behind; they can't call more than this
+    reraise_pct         chance villain re-raises; hero then folds and loses `risk`
+                        (default 0 = villain only folds or calls)
 
-    Two outcomes:
-      villain folds  -> hero wins the pot as it is now               (+pot)
-      villain calls  -> villain adds (risk - to_call), showdown:
-                        equity x final_pot - risk
+    Outcomes:
+      villain folds     -> hero wins the pot as it is now             (+pot)
+      villain re-raises -> hero gives up                               (-risk)
+      villain calls     -> villain adds (risk - to_call), showdown:
+                           equity x final_pot - risk
 
-        EV = fold% x pot + (1 - fold%) x (equity x final_pot - risk)
+        EV = fold% x pot - reraise% x risk + call% x (equity x final_pot - risk)
     """
     _check_prob("fold_pct", fold_pct)
+    _check_prob("reraise_pct", reraise_pct)
     _check_prob("equity_when_called", equity_when_called)
+    if fold_pct + reraise_pct > 1 + 1e-9:
+        raise ValueError("fold_pct + reraise_pct can't be more than 1")
     if risk < to_call:
         raise ValueError("a raise must put in at least the amount to call")
     if min(pot, to_call, risk, villain_stack) < 0:
@@ -87,7 +94,8 @@ def ev_raise(
     final_pot = pot + hero_risk + villain_adds
 
     when_called = equity_when_called * final_pot - hero_risk
-    return fold_pct * pot + (1 - fold_pct) * when_called
+    call_pct = max(0.0, 1 - fold_pct - reraise_pct)
+    return fold_pct * pot - reraise_pct * risk + call_pct * when_called
 
 
 def ev_bet(pot: float, bet: float, fold_pct: float, equity_when_called: float,
